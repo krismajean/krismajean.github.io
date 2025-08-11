@@ -1,0 +1,440 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Reverse Charades — Card Deck + Timer & Scoring</title>
+<style>
+  :root{
+    --bg:#0f1220; --card:#181c2f; --ink:#eef1ff; --muted:#aab1d6; --accent:#7c9cff; --accent2:#4be3c2; --warn:#ffb36b; --danger:#ff6b7a;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; font:16px/1.4 system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,"Helvetica Neue",Arial;
+    color:var(--ink); background:radial-gradient(1200px 800px at 70% -10%, #1b2040 0%, #0f1220 60%, #0b0e19 100%);
+    display:grid; min-height:100dvh; place-items:center; padding:24px;
+  }
+  .app{width:min(980px,100%); display:grid; gap:16px}
+  header{display:flex; flex-wrap:wrap; align-items:center; gap:12px; justify-content:space-between}
+  h1{font-size:20px; margin:0; font-weight:800; letter-spacing:.3px}
+  .controls{display:flex; flex-wrap:wrap; gap:8px}
+  select,button,input[type=number],input[type=checkbox]+label{
+    background:rgba(255,255,255,.06); color:var(--ink); border:1px solid rgba(255,255,255,.12);
+    border-radius:10px; padding:10px 12px; font-weight:600;
+  }
+  input[type=number]{width:90px}
+  button{cursor:pointer}
+  button.primary{background:linear-gradient(90deg,var(--accent),var(--accent2)); color:#0c0f1a; border:none}
+  button:disabled{opacity:.5; cursor:not-allowed}
+  .meta{display:flex; flex-wrap:wrap; gap:16px; color:var(--muted); font-weight:600}
+  .board{
+    display:grid; grid-template-columns: 1.2fr .8fr; gap:16px
+  }
+  .card{
+    background:linear-gradient(145deg,#1a1f35,#13172a); border:1px solid rgba(255,255,255,.08);
+    border-radius:16px; padding:24px; display:grid; gap:18px; box-shadow: 0 10px 30px rgba(0,0,0,.35);
+  }
+  .panel{
+    background:linear-gradient(145deg,#1a1f35,#13172a); border:1px solid rgba(255,255,255,.08);
+    border-radius:16px; padding:16px; display:grid; gap:12px;
+  }
+  .pill{display:inline-block; padding:4px 10px; border-radius:999px; font-size:12px; font-weight:800; letter-spacing:.4px}
+  .easy{background:#1f3b1f; color:#a6ffb3; border:1px solid #2c5a2c}
+  .medium{background:#2b2a17; color:#fff2a8; border:1px solid #585424}
+  .hard{background:#3c1f2e; color:#ffb2cf; border:1px solid #6b2f4d}
+  .target{font-size: clamp(22px, 4.2vw, 36px); font-weight:900; letter-spacing:.2px; line-height:1.2; cursor:pointer}
+  .muted{color:var(--muted)}
+  ul{margin:0; padding-left:18px; columns:2; column-gap:28px}
+  ul li{margin:4px 0}
+  .row{display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; gap:8px}
+  .progress{height:10px; background:rgba(255,255,255,.08); border-radius:999px; overflow:hidden}
+  .bar{height:100%; width:0%; background:linear-gradient(90deg,var(--accent),var(--accent2))}
+  .toggle{display:flex; align-items:center; gap:8px}
+  input[type=checkbox]{display:none}
+  input[type=checkbox]+label{cursor:pointer; user-select:none}
+  .hiddenTarget .target{filter: blur(10px); opacity:.7}
+  .hint{font-size:12px; color:var(--muted)}
+  footer{color:var(--muted); font-size:12px; text-align:center}
+  .score{font-size:28px; font-weight:900}
+  .timer{
+    display:grid; grid-template-columns: 1fr auto; gap:10px; align-items:center;
+  }
+  .time{
+    font-size:40px; font-weight:1000; letter-spacing:1px; padding:6px 12px; border-radius:12px;
+    background:#0e1428; border:1px solid rgba(255,255,255,.1); min-width:140px; text-align:center;
+  }
+  .warning{color:var(--warn)}
+  .danger{color:var(--danger)}
+  .actions{display:flex; gap:8px; flex-wrap:wrap}
+  .actions button{min-width:120px}
+  @media (max-width:860px){ .board{grid-template-columns: 1fr} ul{columns:1} }
+</style>
+</head>
+<body>
+  <div class="app">
+    <header>
+      <h1>Reverse Charades — Deck, Timer & Scoring</h1>
+      <div class="controls">
+        <select id="difficulty" title="Filter by difficulty">
+          <option value="all">All difficulties</option>
+          <option value="Easy">Easy only</option>
+          <option value="Medium">Medium only</option>
+          <option value="Hard">Hard only</option>
+        </select>
+        <span class="toggle">
+          <input id="hideTarget" type="checkbox" />
+          <label for="hideTarget" title="Hide the target text until clicked">Hide target</label>
+        </span>
+        <button id="reset" title="Reset current deck (R)">Reset Deck (R)</button>
+      </div>
+    </header>
+
+    <div id="meta" class="meta">
+      <span id="count">0 left</span>
+      <span id="status">Deck ready</span>
+    </div>
+
+    <div class="board">
+      <!-- CARD -->
+      <section id="card" class="card" role="group" aria-label="Card">
+        <div class="row">
+          <span id="pill" class="pill easy">EASY</span>
+          <span class="hint">Click the title to reveal when “Hide target” is on.</span>
+        </div>
+        <div id="target" class="target">—</div>
+        <div>
+          <div class="muted">Taboo words — you may NOT say:</div>
+          <ul id="taboos"></ul>
+        </div>
+        <div class="row" aria-hidden="true">
+          <div class="progress" style="flex:1"><div id="bar" class="bar"></div></div>
+          <div class="muted" id="progressText">0/0 used</div>
+        </div>
+      </section>
+
+      <!-- TIMER & SCORING -->
+      <aside class="panel">
+        <div class="row">
+          <div class="score" id="score">Score: 0</div>
+          <div class="muted" id="lastPoints">+0</div>
+        </div>
+
+        <div class="timer">
+          <div class="time" id="time">01:00</div>
+          <div class="row" style="gap:6px">
+            <label class="muted" for="roundLen">Round (sec)</label>
+            <input id="roundLen" type="number" min="15" max="600" step="5" value="60"/>
+            <button id="start" class="primary" title="Space">Start Round (Space)</button>
+            <button id="pause" title="Space">Pause</button>
+            <button id="endRound">End</button>
+          </div>
+        </div>
+
+        <div class="actions">
+          <button id="new" title="N">New Card (N)</button>
+          <button id="got" class="primary" title="G">Got It (G)</button>
+          <button id="skip" title="K">Skip (K)</button>
+          <button id="undo">Undo Last</button>
+        </div>
+
+        <div class="muted">
+          Scoring: Easy=1 • Medium=2 • Hard=3. Change difficulty filter anytime; score keeps going.
+        </div>
+      </aside>
+    </div>
+
+    <footer>Shortcuts: Space = Start/Pause • N = New • G = Got It • K = Skip • R = Reset deck</footer>
+  </div>
+
+<script>
+/* --------- Config --------- */
+const DIFF_POINTS = { Easy:1, Medium:2, Hard:3 };
+
+/* --------- Data --------- */
+const CARDS = [
+  // Easy (1–10)
+  {diff:"Easy",   target:"Casting a fishing rod", taboos:["fish","rod","reel","cast"]},
+  {diff:"Easy",   target:"Brushing teeth", taboos:["brush","teeth","toothpaste","mouth"]},
+  {diff:"Easy",   target:"Jumping rope", taboos:["jump","rope","skip","swing"]},
+  {diff:"Easy",   target:"Dribbling a basketball", taboos:["ball","bounce","court","basketball"]},
+  {diff:"Easy",   target:"Playing a guitar", taboos:["guitar","strum","pick","strings"]},
+  {diff:"Easy",   target:"Paddling a canoe", taboos:["paddle","canoe","boat","water"]},
+  {diff:"Easy",   target:"Swinging a baseball bat", taboos:["bat","baseball","swing","hit"]},
+  {diff:"Easy",   target:"Shoveling snow", taboos:["shovel","snow","dig","scoop"]},
+  {diff:"Easy",   target:"Rolling out dough", taboos:["roll","dough","pastry","pin"]},
+  {diff:"Easy",   target:"Watering plants", taboos:["water","pour","plant","flowers"]},
+  // Medium (11–20)
+  {diff:"Medium", target:"Sewing a shirt", taboos:["sew","needle","thread","fabric"]},
+  {diff:"Medium", target:"Building a sandcastle", taboos:["sand","castle","bucket","beach"]},
+  {diff:"Medium", target:"Bowling a strike", taboos:["ball","lane","pins","bowl"]},
+  {diff:"Medium", target:"Wrapping a present", taboos:["wrap","gift","paper","tape"]},
+  {diff:"Medium", target:"Tightrope walking", taboos:["rope","balance","high","circus"]},
+  {diff:"Medium", target:"Washing a car", taboos:["car","wash","soap","sponge"]},
+  {diff:"Medium", target:"Hula hooping", taboos:["hoop","waist","spin","circle"]},
+  {diff:"Medium", target:"Digging for treasure", taboos:["dig","treasure","shovel","chest"]},
+  {diff:"Medium", target:"Ice skating", taboos:["ice","skate","rink","blades"]},
+  {diff:"Medium", target:"Playing the drums", taboos:["drum","sticks","beat","music"]},
+  // Hard (21–50)
+  {diff:"Hard",   target:"Putting on scuba gear", taboos:["scuba","tank","mask","fins"]},
+  {diff:"Hard",   target:"Riding a mechanical bull", taboos:["bull","ride","spin","fall"]},
+  {diff:"Hard",   target:"Conducting an orchestra", taboos:["music","conductor","baton","orchestra"]},
+  {diff:"Hard",   target:"Climbing a rope", taboos:["rope","climb","pull","gym"]},
+  {diff:"Hard",   target:"Playing air traffic controller", taboos:["plane","guide","runway","signals"]},
+  {diff:"Hard",   target:"Launching a paper airplane", taboos:["paper","plane","fold","throw"]},
+  {diff:"Hard",   target:"Painting a mural", taboos:["paint","wall","brush","color"]},
+  {diff:"Hard",   target:"Performing a magic trick with cards", taboos:["magic","card","trick","shuffle"]},
+  {diff:"Hard",   target:"Herding sheep", taboos:["sheep","herd","farm","flock"]},
+  {diff:"Hard",   target:"Doing a cartwheel", taboos:["cartwheel","flip","spin","hands"]},
+  {diff:"Hard",   target:"Fencing in a sword fight", taboos:["sword","fence","duel","foil"]},
+  {diff:"Hard",   target:"Riding a pogo stick", taboos:["pogo","jump","bounce","stick"]},
+  {diff:"Hard",   target:"Churning butter", taboos:["Butter","churn","cream","barrel"]},
+  {diff:"Hard",   target:"Starting a lawn mower", taboos:["mower","lawn","grass","pull"]},
+  {diff:"Hard",   target:"Skiing down a hill", taboos:["ski","snow","poles","slope"]},
+  {diff:"Hard",   target:"Operating a jackhammer", taboos:["jackhammer","drill","construction","shake"]},
+  {diff:"Hard",   target:"Blowing glass", taboos:["glass","blow","hot","tube"]},
+  {diff:"Hard",   target:"Karate chopping a board", taboos:["karate","chop","board","break"]},
+  {diff:"Hard",   target:"Juggling three items", taboos:["juggle","toss","catch","balls"]},
+  {diff:"Hard",   target:"Picking apples", taboos:["apple","tree","pick","fruit"]},
+  {diff:"Hard",   target:"Rowing in a race", taboos:["row","boat","oar","water"]},
+  {diff:"Hard",   target:"Milking a cow", taboos:["cow","milk","farm","squeeze"]},
+  {diff:"Hard",   target:"Stirring a pot of soup", taboos:["stir","pot","soup","cook"]},
+  {diff:"Hard",   target:"Using binoculars", taboos:["binoculars","look","see","zoom"]},
+  {diff:"Hard",   target:"Windsurfing", taboos:["wind","surf","sail","board"]},
+  {diff:"Hard",   target:"Polishing shoes", taboos:["polish","shoes","shine","brush"]},
+  {diff:"Hard",   target:"Building a campfire", taboos:["fire","build","wood","light"]},
+  {diff:"Hard",   target:"Zipping up a tent", taboos:["tent","zip","close","camping"]},
+  {diff:"Hard",   target:"Hammering nails", taboos:["hammer","nails","hit","pound"]},
+  {diff:"Hard",   target:"Rappelling down a cliff", taboos:["rope","cliff","descend","harness"]}
+];
+
+/* --------- State --------- */
+let deck = [];
+let used = [];
+let score = 0;
+let history = []; // stack of actions for undo
+let timerId = null;
+let remaining = 60;
+let running = false;
+let rng = cryptoRandom;
+
+/* --------- Els --------- */
+const els = {
+  card: document.getElementById('card'),
+  pill: document.getElementById('pill'),
+  target: document.getElementById('target'),
+  taboos: document.getElementById('taboos'),
+  newBtn: document.getElementById('new'),
+  gotBtn: document.getElementById('got'),
+  skipBtn: document.getElementById('skip'),
+  undoBtn: document.getElementById('undo'),
+  resetBtn: document.getElementById('reset'),
+  diff: document.getElementById('difficulty'),
+  hide: document.getElementById('hideTarget'),
+  count: document.getElementById('count'),
+  status: document.getElementById('status'),
+  bar: document.getElementById('bar'),
+  progressText: document.getElementById('progressText'),
+  score: document.getElementById('score'),
+  lastPoints: document.getElementById('lastPoints'),
+  time: document.getElementById('time'),
+  roundLen: document.getElementById('roundLen'),
+  start: document.getElementById('start'),
+  pause: document.getElementById('pause'),
+  endRound: document.getElementById('endRound')
+};
+
+/* --------- Helpers --------- */
+function cryptoRandom(max){
+  if (window.crypto && crypto.getRandomValues) {
+    const a = new Uint32Array(1);
+    crypto.getRandomValues(a);
+    return Math.floor(a[0] / (0xffffffff + 1) * max);
+  }
+  return Math.floor(Math.random()*max);
+}
+function shuffle(array){
+  for(let i=array.length-1;i>0;i--){
+    const j = rng(i+1);
+    [array[i],array[j]] = [array[j],array[i]];
+  }
+  return array;
+}
+function setPill(diff){
+  els.pill.textContent = diff.toUpperCase();
+  els.pill.className = 'pill ' + (diff==="Easy"?'easy':diff==="Medium"?'medium':'hard');
+}
+function escapeHtml(s){ return s.replace(/[&<>"]/g, c=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+function fmtTime(s){
+  const m = Math.floor(s/60).toString().padStart(2,'0');
+  const sec = Math.floor(s%60).toString().padStart(2,'0');
+  return `${m}:${sec}`;
+}
+
+/* --------- Rendering --------- */
+function render(card){
+  setPill(card.diff);
+  els.target.textContent = card.target;
+  els.taboos.innerHTML = card.taboos.map(w=>`<li>${escapeHtml(w)}</li>`).join('');
+  updateCounts();
+  els.card.classList.toggle('hiddenTarget', els.hide.checked);
+}
+function updateCounts(){
+  const left = deck.length;
+  els.count.textContent = `${left} left`;
+  els.status.textContent = used.length ? `Last: ${used[used.length-1].target}` : 'Deck ready';
+  const total = left + used.length;
+  const pct = total ? Math.round((used.length/total)*100) : 0;
+  els.bar.style.width = pct + '%';
+  els.progressText.textContent = `${used.length}/${total} used`;
+}
+function updateScoreDisplay(last=0){
+  els.score.textContent = `Score: ${score}`;
+  els.lastPoints.textContent = last ? (last>0?`+${last}`:`${last}`) : '';
+}
+function renderTime(){
+  els.time.textContent = fmtTime(remaining);
+  els.time.classList.toggle('warning', remaining<=15 && remaining>5);
+  els.time.classList.toggle('danger', remaining<=5);
+}
+
+/* --------- Deck Logic --------- */
+function makeDeck(){
+  const diff = els.diff.value;
+  const filtered = diff==='all' ? CARDS.slice() : CARDS.filter(c=>c.diff===diff);
+  deck = shuffle(filtered);
+  used = [];
+  history = [];
+  els.newBtn.disabled = deck.length===0;
+  updateCounts();
+  if(deck.length){ render(deck[0]); }
+}
+function nextCard(){
+  if(!deck.length){ els.status.textContent = 'Deck empty — reset?'; els.newBtn.disabled = true; return; }
+  const card = deck.shift();
+  used.push(card);
+  render(card);
+}
+function resetDeck(){
+  makeDeck();
+}
+
+/* --------- Timer --------- */
+function startRound(){
+  if(running) return;
+  remaining = clampRoundLen(parseInt(els.roundLen.value,10) || 60);
+  renderTime();
+  running = true;
+  els.start.disabled = true;
+  els.pause.disabled = false;
+  els.newBtn.disabled = false;
+  tick();
+}
+function resumeRound(){
+  if(running) return;
+  running = true;
+  els.start.disabled = true;
+  els.pause.disabled = false;
+  tick();
+}
+function pauseRound(){
+  running = false;
+  els.start.disabled = false;
+  els.pause.disabled = true;
+  clearTimeout(timerId);
+}
+function endRound(){
+  running = false;
+  clearTimeout(timerId);
+  els.start.disabled = false;
+  els.pause.disabled = true;
+}
+function tick(){
+  clearTimeout(timerId);
+  timerId = setTimeout(()=>{
+    if(!running) return;
+    remaining--;
+    renderTime();
+    if(remaining<=0){
+      remaining=0; renderTime(); endRound();
+      flashStatus("Time!");
+      disablePlayButtons(true);
+      setTimeout(()=>disablePlayButtons(false), 1200);
+      return;
+    }
+    tick();
+  }, 1000);
+}
+function clampRoundLen(v){ return Math.min(600, Math.max(15, v)); }
+function flashStatus(msg){
+  const old = els.status.textContent;
+  els.status.textContent = msg;
+  setTimeout(()=> els.status.textContent = old, 900);
+}
+function disablePlayButtons(disabled){
+  els.newBtn.disabled = disabled;
+  els.gotBtn.disabled = disabled;
+  els.skipBtn.disabled = disabled;
+}
+
+/* --------- Scoring --------- */
+function gotIt(){
+  const card = used[used.length-1];
+  if(!card) return;
+  const pts = DIFF_POINTS[card.diff] || 1;
+  score += pts;
+  history.push({type:'got', pts, card});
+  updateScoreDisplay(pts);
+  flashStatus(`Scored +${pts}`);
+  nextCard();
+}
+function skip(){
+  const card = used[used.length-1];
+  if(!card) return;
+  history.push({type:'skip', pts:0, card});
+  updateScoreDisplay(0);
+  flashStatus('Skipped');
+  nextCard();
+}
+function undo(){
+  const act = history.pop();
+  if(!act) return;
+  if(act.type==='got'){ score -= act.pts; updateScoreDisplay(-act.pts); }
+  // put the last shown card back on top
+  if(used.length){ const last = used.pop(); deck.unshift(last); render(last); updateCounts(); }
+}
+
+/* --------- Events --------- */
+els.newBtn.addEventListener('click', nextCard);
+els.resetBtn.addEventListener('click', resetDeck);
+els.diff.addEventListener('change', resetDeck);
+els.hide.addEventListener('change', ()=> els.card.classList.toggle('hiddenTarget', els.hide.checked));
+els.target.addEventListener('click', ()=> { if(els.hide.checked){ els.card.classList.toggle('hiddenTarget'); } });
+els.gotBtn.addEventListener('click', gotIt);
+els.skipBtn.addEventListener('click', skip);
+els.undoBtn.addEventListener('click', undo);
+
+els.start.addEventListener('click', ()=> running ? resumeRound() : startRound());
+els.pause.addEventListener('click', pauseRound);
+els.endRound.addEventListener('click', endRound);
+els.roundLen.addEventListener('change', ()=> { els.roundLen.value = clampRoundLen(parseInt(els.roundLen.value||60,10)); remaining = parseInt(els.roundLen.value,10); renderTime(); });
+
+window.addEventListener('keydown', (e)=>{
+  if(e.key==='n' || e.key==='N'){ nextCard(); }
+  if(e.key==='r' || e.key==='R'){ resetDeck(); }
+  if(e.key==='g' || e.key==='G'){ gotIt(); }
+  if(e.key==='k' || e.key==='K'){ skip(); }
+  if(e.code==='Space'){ e.preventDefault(); running ? pauseRound() : (used.length?resumeRound():startRound()); }
+});
+
+/* --------- Init --------- */
+function init(){
+  makeDeck();
+  remaining = parseInt(els.roundLen.value,10) || 60;
+  renderTime();
+  updateScoreDisplay(0);
+  els.pause.disabled = true;
+}
+init();
+</script>
+</body>
+</html>
